@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>圖書館環保分類小達人</title>
+    <!-- 引入 Google Fonts 思源黑體與圓體，讓字體活潑好讀 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&family=Noto+Sans+TC:wght@700;900&display=swap" rel="stylesheet">
+    <!-- 引入 Tone.js 產生清脆的互動音效 (無需外部音檔) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #FFF9E6; /* 溫暖活潑的淺奶油黃底色 */
+            font-family: 'M PLUS Rounded 1c', 'Noto Sans TC', sans-serif;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+/**
+ * 圖書館環保分類小達人 - 互動式 Canvas 宣導網頁
+ * 包含手搖飲分類與外帶餐盒分類兩大關卡
+ * 支援手機觸控與電腦滑鼠點擊、按鈕左右搖晃回饋、垃圾桶乾淨閃亮動畫與宣導重點面板
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// 音效初始化 (使用 Tone.js 合成音效)
+let audioInitialized = false;
+let synth, polySynth;
+
+function initAudio() {
+    if (audioInitialized) return;
+    try {
+        Tone.start();
+        synth = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.2 }
+        }).toDestination();
+        
+        polySynth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.02, decay: 0.2, sustain: 0.2, release: 0.5 }
+        }).toDestination();
+        audioInitialized = true;
+    } catch (e) {
+        console.log("Audio init skipped:", e);
+    }
+}
+
+function playSound(type) {
+    if (!audioInitialized) return;
+    const now = Tone.now();
+    if (type === 'click') {
+        synth.triggerAttackRelease('C5', '16n', now);
+    } else if (type === 'wrong') {
+        // 答錯的低沉雙音
+        synth.triggerAttackRelease('E3', '16n', now);
+        synth.triggerAttackRelease('C3', '8n', now + 0.12);
+    } else if (type === 'correct') {
+        // 答對的輕快上揚和弦
+        polySynth.triggerAttackRelease(['C5', 'E5', 'G5'], '8n', now);
+        polySynth.triggerAttackRelease(['C6'], '4n', now + 0.15);
+    } else if (type === 'sparkle') {
+        polySynth.triggerAttackRelease(['G5', 'B5', 'D6', 'G6'], '8n', now);
+    }
+}
+
+// 遊戲題庫與宣導資料
+const QUIZ_DATA = [
+    {
+        id: 1,
+        badge: "宣導任務 (一)",
+        itemType: "bubble_tea",
+        question: "手搖飲如何分類？",
+        subHint: "請選出正確的圖書館垃圾分類方式！",
+        options: [
+            { text: "直接丟就好", isCorrect: false },
+            { text: "拔掉吸管就好", isCorrect: false },
+            { text: "沒喝完也塞進垃圾桶", isCorrect: false },
+            { text: "封膜吸管撕除剩下的飲料倒掉", isCorrect: true }
+        ],
+        promoTitle: "於圖書館丟手搖飲請確實分類！",
+        promoPoints: [
+            "1. 剩下的飲料請先倒進水槽或廚餘桶",
+            "2. 封膜、吸管撕除丟入「一般垃圾」",
+            "3. 塑膠杯或紙杯沖洗後丟「資源回收」",
+            "★ 務必確實分類，不要造成打掃班級困擾！"
+        ]
+    },
+    {
+        id: 2,
+        badge: "宣導任務 (二)",
+        itemType: "lunch_box",
+        question: "外帶餐盒如何分類？",
+        subHint: "吃完便當或外帶餐點後該怎麼做呢？",
+        options: [
+            { text: "直接丟就好", isCorrect: false },
+            { text: "連同塑膠袋筷子廚餘全部包一起", isCorrect: false },
+            { text: "依照類別蓋子丟塑膠及紙餐盒", isCorrect: true },
+            { text: "丟廁所垃圾桶", isCorrect: false }
+        ],
+        promoTitle: "於圖書館丟外帶餐盒請確實分類！",
+        promoPoints: [
+            "1. 殘渣與廚餘請先倒入廚餘回收桶",
+            "2. 塑膠蓋、塑膠袋與紙餐盒請分開回收",
+            "3. 竹筷、衛生紙請丟入「一般垃圾」",
+            "★ 務必確實分類，不要造成打掃班級困擾！"
+        ]
+    }
+];
+
+// 遊戲狀態管理
+const STATE = {
+    START: 'START',
+    QUESTION: 'QUESTION',
+    ANIMATING_CORRECT: 'ANIMATING_CORRECT',
+    RESULT_CARD: 'RESULT_CARD',
+    FINAL_SUMMARY: 'FINAL_SUMMARY'
+};
+
+let currentState = STATE.START;
+let currentLevel = 0; // 0 或 1
+let width = 0;
+let height = 0;
+let dpr = 1;
+
+// 互動按鈕陣列 (儲存座標以供點擊偵測與動畫)
+let buttons = [];
+let actionButton = null; // 開始 / 下一題 / 重新挑戰 按鈕
+
+// 錯誤提示浮動氣泡狀態
+let toastMessage = {
+    active: false,
+    text: "再想想看！",
+    timer: 0,
+    x: 0,
+    y: 0
+};
+
+// 答對動畫狀態
+let animState = {
+    progress: 0, // 0 ~ 1
+    sparkles: [],
+    confetti: [],
+    binScale: 1,
+    binHappy: false
+};
+
+// 背景飄浮裝飾氣泡
+let bgBubbles = [];
+
+// 活潑配色表
+const COLORS = {
+    bgTop: '#FFF8E7',
+    bgBottom: '#E6F7FF',
+    primary: '#FF6B6B',      // 活力珊瑚紅
+    secondary: '#4ECDC4',    // 清新薄荷綠
+    accent: '#FFD166',       // 陽光亮黃
+    purple: '#845EC2',       // 活潑紫
+    blue: '#118AB2',         // 海洋藍
+    darkText: '#2B2D42',     // 深藍灰文字 (高對比易讀)
+    white: '#FFFFFF',
+    btnColors: [
+        { bg: '#FF8A5B', border: '#E0602D', text: '#FFFFFF' }, // 橘紅
+        { bg: '#4EA8DE', border: '#277DA1', text: '#FFFFFF' }, // 天藍
+        { bg: '#52B788', border: '#2D6A4F', text: '#FFFFFF' }, // 翠綠
+        { bg: '#9B5DE5', border: '#6930C3', text: '#FFFFFF' }  // 亮紫
+    ]
+};
+
+// 初始化尺寸與自適應畫面
+function resizeCanvas() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
+    initBgBubbles();
+    layoutUI();
+}
+
+function initBgBubbles() {
+    bgBubbles = [];
+    const palette = ['rgba(255, 209, 102, 0.35)', 'rgba(78, 205, 196, 0.25)', 'rgba(255, 107, 107, 0.2)', 'rgba(78, 168, 222, 0.25)'];
+    for (let i = 0; i < 14; i++) {
+        bgBubbles.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            r: 15 + Math.random() * 45,
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: -0.2 - Math.random() * 0.5,
+            color: palette[i % palette.length]
+        });
+    }
+}
+
+// 計算各元件響應式位置
+function layoutUI() {
+    const safeW = Math.min(width - 32, 540); // 手機滿版、平板/電腦置中最大寬度
+    const centerX = width / 2;
+
+    if (currentState === STATE.START) {
+        const btnW = Math.min(safeW * 0.85, 340);
+        const btnH = Math.max(64, height * 0.09);
+        actionButton = {
+            x: centerX - btnW / 2,
+            y: height * 0.72,
+            w: btnW,
+            h: btnH,
+            text: "開始挑戰！",
+            bg: '#FF6B6B',
+            border: '#D93838',
+            scale: 1
+        };
+    } else if (currentState === STATE.QUESTION) {
+        const quiz = QUIZ_DATA[currentLevel];
+        // 按鈕區域從螢幕 44% 高度開始往下排 4 個大按鈕
+        const startY = height * 0.43;
+        const availableH = height * 0.52;
+        const gap = Math.max(12, availableH * 0.04);
+        const btnH = Math.min(82, (availableH - gap * 3) / 4);
+        const btnW = safeW;
+
+        // 保留原有的搖晃狀態（若正在搖晃）
+        const oldButtons = buttons;
+        buttons = quiz.options.map((opt, idx) => {
+            const existing = oldButtons[idx];
+            return {
+                index: idx,
+                x: centerX - btnW / 2,
+                y: startY + idx * (btnH + gap),
+                w: btnW,
+                h: btnH,
+                text: opt.text,
+                isCorrect: opt.isCorrect,
+                colorScheme: COLORS.btnColors[idx % COLORS.btnColors.length],
+                shakeTimer: existing ? existing.shakeTimer : 0,
+                shakeOffset: existing ? existing.shakeOffset : 0,
+                isWrongMarked: existing ? existing.isWrongMarked : false,
+                pressScale: 1
+            };
+        });
+    } else if (currentState === STATE.RESULT_CARD) {
+        const btnW = Math.min(safeW * 0.85, 340);
+        const btnH = Math.max(60, height * 0.085);
+        actionButton = {
+            x: centerX - btnW / 2,
+            y: height * 0.83,
+            w: btnW,
+            h: btnH,
+            text: currentLevel === 0 ? "下一題：外帶餐盒 ➔" : "完成宣導任務！🎉",
+            bg: '#4ECDC4',
+            border: '#2B938C',
+            scale: 1
+        };
+    } else if (currentState === STATE.FINAL_SUMMARY) {
+        const btnW = Math.min(safeW * 0.85, 340);
+        const btnH = Math.max(60, height * 0.085);
+        actionButton = {
+            x: centerX - btnW / 2,
+            y: height * 0.84,
+            w: btnW,
+            h: btnH,
+            text: "再玩一次 ↻",
+            bg: '#FF8A5B',
+            border: '#D95D2B',
+            scale: 1
+        };
+    }
+}
+
+// 繪製圓角矩形輔助函式
+function drawRoundRect(x, y, w, h, r, fill, stroke, strokeWidth = 0) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+    }
+    if (stroke && strokeWidth > 0) {
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = stroke;
+        ctx.stroke();
+    }
+}
+
+// 自動換行文字繪製輔助函式 (確保大字體在手機上不超出邊界)
+function drawWrappedText(text, x, y, maxWidth, lineHeight, font, color, align = 'center') {
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+
+    // 先檢查單行是否放得下
+    if (ctx.measureText(text).width <= maxWidth) {
+        ctx.fillText(text, x, y);
+        return 1;
+    }
+
+    // 針對中文逐字斷行
+    const chars = text.split('');
+    let lines = [];
+    let currentLine = '';
+
+    for (let i = 0; i < chars.length; i++) {
+        const testLine = currentLine + chars[i];
+        if (ctx.measureText(testLine).width > maxWidth && currentLine.length > 0) {
+            lines.push(currentLine);
+            currentLine = chars[i];
+        } else {
+            currentLine = testLine;
+        }
+    }
+    if (currentLine) lines.push(currentLine);
+
+    const totalH = (lines.length - 1) * lineHeight;
+    lines.forEach((line, idx) => {
+        ctx.fillText(line, x, y - totalH / 2 + idx * lineHeight);
+    });
+    return lines.length;
+}
+
+// 繪製向量插圖：手搖飲
+function drawBubbleTeaIcon(cx, cy, scale = 1) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+
+    // 粗吸管 (斜插)
+    ctx.save();
+    ctx.rotate(0.22);
+    drawRoundRect(-7, -65, 14, 70, 5, '#FF6B6B', '#2B2D42', 3);
+    ctx.restore();
+
+    // 杯身 (梯形)
+    ctx.beginPath();
+    ctx.moveTo(-28, -28);
+    ctx.lineTo(28, -28);
+    ctx.lineTo(20, 42);
+    ctx.lineTo(-20, 42);
+    ctx.closePath();
+    ctx.fillStyle = '#FFE5B4'; // 奶茶色
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#2B2D42';
+    ctx.stroke();
+
+    // 封膜杯緣
+    drawRoundRect(-32, -33, 64, 9, 4, '#4ECDC4', '#2B2D42', 3);
+
+    // 底部珍珠
+    const pearls = [[-10, 32], [0, 34], [10, 31], [-5, 23], [6, 24], [-12, 22]];
+    ctx.fillStyle = '#3D2C2E';
+    pearls.forEach(([px, py]) => {
+        ctx.beginPath();
+        ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // 可愛表情
+    ctx.fillStyle = '#2B2D42';
+    ctx.beginPath();
+    ctx.arc(-9, 2, 3, 0, Math.PI * 2);
+    ctx.arc(9, 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 5, 5, 0, Math.PI);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// 繪製向量插圖：外帶餐盒
+function drawLunchBoxIcon(cx, cy, scale = 1) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+
+    // 筷子
+    ctx.save();
+    ctx.rotate(-0.15);
+    drawRoundRect(-42, -32, 84, 6, 3, '#E09F3E', '#2B2D42', 2.5);
+    ctx.restore();
+
+    // 紙餐盒底座
+    ctx.beginPath();
+    ctx.moveTo(-36, -6);
+    ctx.lineTo(36, -6);
+    ctx.lineTo(28, 32);
+    ctx.lineTo(-28, 32);
+    ctx.closePath();
+    ctx.fillStyle = '#F4D58D';
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#2B2D42';
+    ctx.stroke();
+
+    // 食物小山 (白飯與配菜)
+    ctx.beginPath();
+    ctx.arc(-10, -8, 13, Math.PI, 0);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(12, -8, 12, Math.PI, 0);
+    ctx.fillStyle = '#52B788'; // 青菜
+    ctx.fill();
+    ctx.stroke();
+
+    // 透明塑膠蓋 (微掀開效果)
+    ctx.save();
+    ctx.translate(0, -18);
+    ctx.rotate(-0.08);
+    drawRoundRect(-38, -8, 76, 12, 6, 'rgba(173, 232, 244, 0.85)', '#2B2D42', 3);
+    ctx.restore();
+
+    // 可愛表情
+    ctx.fillStyle = '#2B2D42';
+    ctx.beginPath();
+    ctx.arc(-10, 11, 3, 0, Math.PI * 2);
+    ctx.arc(10, 11, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 14, 5, 0, Math.PI);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// 繪製向量插圖：乾淨閃亮的分類垃圾桶 (用於動畫與首頁)
+function drawCleanTrashBin(cx, cy, scale = 1, isHappy = true, lidAngle = 0) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+
+    // 地面陰影
+    ctx.beginPath();
+    ctx.ellipse(0, 62, 52, 12, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.fill();
+
+    // 桶身
+    ctx.beginPath();
+    ctx.moveTo(-42, -32);
+    ctx.lineTo(42, -32);
+    ctx.lineTo(34, 58);
+    ctx.lineTo(-34, 58);
+    ctx.closePath();
+    ctx.fillStyle = '#4ECDC4'; // 乾淨薄荷綠
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#2B2D42';
+    ctx.stroke();
+
+    // 桶身亮面反光
+    ctx.beginPath();
+    ctx.moveTo(-28, -20);
+    ctx.lineTo(-23, 44);
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.stroke();
+
+    // 桶蓋 (可旋轉開合)
+    ctx.save();
+    ctx.translate(-44, -36);
+    ctx.rotate(lidAngle);
+    drawRoundRect(-4, -10, 96, 14, 7, '#FFD166', '#2B2D42', 4);
+    // 蓋子把手
+    drawRoundRect(32, -20, 24, 10, 5, '#FF6B6B', '#2B2D42', 3.5);
+    ctx.restore();
+
+    // 開心臉蛋
+    ctx.fillStyle = '#2B2D42';
+    if (isHappy) {
+        // 彎彎笑眼
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(-14, 6, 6, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(14, 6, 6, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+
+        // 粉紅腮紅
+        ctx.fillStyle = '#FF8FA3';
+        ctx.beginPath();
+        ctx.ellipse(-22, 15, 6, 4, 0, 0, Math.PI * 2);
+        ctx.ellipse(22, 15, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 開心大笑嘴巴
+        ctx.fillStyle = '#FF6B6B';
+        ctx.beginPath();
+        ctx.arc(0, 14, 11, 0, Math.PI);
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#2B2D42';
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+// 繪製閃亮星星粒子
+function drawSparkleStar(x, y, size, color, alpha = 1) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(size * 0.2, size * 0.2, 0, size);
+        ctx.quadraticCurveTo(-size * 0.2, size * 0.2, 0, 0);
+    }
+    ctx.fill();
+    ctx.restore();
+}
+
+// 觸發答對的垃圾桶乾淨動畫
+function triggerCorrectAnimation() {
+    currentState = STATE.ANIMATING_CORRECT;
+    animState.progress = 0;
+    animState.sparkles = [];
+    animState.confetti = [];
+
+    // 產生閃亮星星
+    const starColors = ['#FFD166', '#FFFFFF', '#4ECDC4', '#FF6B6B'];
+    for (let i = 0; i < 24; i++) {
+        const angle = (Math.PI * 2 * i) / 24 + Math.random() * 0.2;
+        const speed = 1.5 + Math.random() * 3.5;
+        animState.sparkles.push({
+            x: width / 2,
+            y: height * 0.45,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 1.5,
+            size: 10 + Math.random() * 14,
+            color: starColors[i % starColors.length],
+            alpha: 1
+        });
+    }
+
+    // 產生慶祝彩帶碎紙
+    const confettiColors = ['#FF6B6B', '#4ECDC4', '#FFD166', '#9B5DE5', '#4EA8DE'];
+    for (let i = 0; i < 36; i++) {
+        animState.confetti.push({
+            x: width * 0.2 + Math.random() * width * 0.6,
+            y: height * 0.35 + (Math.random() - 0.5) * 60,
+            vx: (Math.random() - 0.5) * 6,
+            vy: -4 - Math.random() * 6,
+            w: 8 + Math.random() * 6,
+            h: 5 + Math.random() * 5,
+            rot: Math.random() * Math.PI,
+            vRot: (Math.random() - 0.5) * 0.2,
+            color: confettiColors[i % confettiColors.length]
+        });
+    }
+}
+
+// 更新動畫邏輯
+function update(dt) {
+    // 背景氣泡飄動
+    bgBubbles.forEach(b => {
+        b.x += b.vx;
+        b.y += b.vy;
+        if (b.y + b.r < 0) {
+            b.y = height + b.r;
+            b.x = Math.random() * width;
+        }
+    });
+
+    // 更新按鈕左右搖晃動畫
+    if (currentState === STATE.QUESTION) {
+        buttons.forEach(btn => {
+            if (btn.shakeTimer > 0) {
+                btn.shakeTimer -= dt;
+                // 左右快速正弦波震盪，隨時間衰減
+                const decay = Math.max(0, btn.shakeTimer / 0.55);
+                btn.shakeOffset = Math.sin(btn.shakeTimer * 48) * 14 * decay;
+                if (btn.shakeTimer <= 0) {
+                    btn.shakeTimer = 0;
+                    btn.shakeOffset = 0;
+                }
+            }
+        });
+    }
+
+    // 更新「再想想看！」提示氣泡
+    if (toastMessage.active) {
+        toastMessage.timer -= dt;
+        toastMessage.y -= 18 * dt; // 微微往上飄
+        if (toastMessage.timer <= 0) {
+            toastMessage.active = false;
+        }
+    }
+
+    // 更新答對慶祝動畫
+    if (currentState === STATE.ANIMATING_CORRECT) {
+        animState.progress += dt / 1.9; // 動畫總長約 1.9 秒後自動顯示宣導重點
+
+        animState.sparkles.forEach(s => {
+            s.x += s.vx;
+            s.y += s.vy;
+            s.alpha = Math.max(0, 1 - animState.progress * 0.85);
+        });
+
+        animState.confetti.forEach(c => {
+            c.x += c.vx;
+            c.y += c.vy;
+            c.vy += 0.22; // 重力
+            c.rot += c.vRot;
+        });
+
+        if (animState.progress >= 1) {
+            currentState = STATE.RESULT_CARD;
+            layoutUI();
+        }
+    }
+}
+
+// 繪製背景
+function drawBackground() {
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, COLORS.bgTop);
+    grad.addColorStop(1, COLORS.bgBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // 繪製飄浮泡泡
+    bgBubbles.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.fill();
+    });
+}
+
+// 繪製 3D 立體大按鈕
+function drawBigButton(btn, offsetX = 0) {
+    const x = btn.x + offsetX;
+    const y = btn.y;
+    const w = btn.w;
+    const h = btn.h;
+    const r = Math.min(20, h * 0.3);
+
+    // 按鈕底部立體陰影層
+    drawRoundRect(x, y + 6, w, h, r, btn.border || btn.colorScheme.border);
+
+    // 按鈕主體
+    let fillColor = btn.bg || btn.colorScheme.bg;
+    if (btn.isWrongMarked) {
+        fillColor = '#A0AAB2'; // 答錯過一次變柔和灰，提示已排除但仍可點
+    }
+    drawRoundRect(x, y, w, h, r, fillColor, '#2B2D42', 3);
+
+    // 頂部高光條
+    drawRoundRect(x + 12, y + 5, w - 24, 6, 3, 'rgba(255, 255, 255, 0.32)');
+
+    // 按鈕文字 (大字體自動換行適應手機寬度)
+    const baseFontSize = Math.max(20, Math.min(26, w * 0.062));
+    const fontStr = `900 ${baseFontSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`;
+    drawWrappedText(
+        btn.text,
+        x + w / 2,
+        y + h / 2,
+        w - 28,
+        baseFontSize * 1.25,
+        fontStr,
+        '#FFFFFF'
+    );
+}
+
+// 繪製首頁畫面
+function drawStartScreen() {
+    const centerX = width / 2;
+    const safeW = Math.min(width - 32, 520);
+
+    // 頂部標籤
+    const tagW = Math.min(260, safeW * 0.75);
+    drawRoundRect(centerX - tagW / 2, height * 0.08, tagW, 42, 21, '#FFD166', '#2B2D42', 3);
+    drawWrappedText("衛生幹部社群宣導", centerX, height * 0.08 + 21, tagW - 16, 24, '900 20px "Noto Sans TC", sans-serif', '#2B2D42');
+
+    // 主標題
+    const titleSize = Math.max(30, Math.min(44, safeW * 0.095));
+    drawWrappedText(
+        "圖書館環保分類\n小達人挑戰！",
+        centerX,
+        height * 0.23,
+        safeW,
+        titleSize * 1.28,
+        `900 ${titleSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`,
+        '#2B2D42'
+    );
+
+    // 中央可愛圖示組合 (手搖飲 + 乾淨垃圾桶 + 餐盒)
+    const iconY = height * 0.48;
+    const iconScale = Math.min(1.15, safeW / 360);
+    drawBubbleTeaIcon(centerX - 105 * iconScale, iconY + 10, 0.85 * iconScale);
+    drawCleanTrashBin(centerX, iconY, 1.05 * iconScale, true, -0.15);
+    drawLunchBoxIcon(centerX + 105 * iconScale, iconY + 12, 0.85 * iconScale);
+
+    // 副標說明
+    const subSize = Math.max(18, Math.min(22, safeW * 0.052));
+    drawWrappedText(
+        "務必確實分類，\n不要造成打掃班級困擾！",
+        centerX,
+        height * 0.63,
+        safeW,
+        subSize * 1.35,
+        `700 ${subSize}px "Noto Sans TC", sans-serif`,
+        '#4A5568'
+    );
+
+    // 開始按鈕
+    if (actionButton) {
+        drawBigButton(actionButton);
+    }
+}
+
+// 繪製答題畫面
+function drawQuestionScreen() {
+    const quiz = QUIZ_DATA[currentLevel];
+    const centerX = width / 2;
+    const safeW = Math.min(width - 32, 540);
+
+    // 進度指示膠囊 (第 1 題 / 第 2 題)
+    const badgeW = Math.min(240, safeW * 0.65);
+    const badgeY = Math.max(16, height * 0.03);
+    drawRoundRect(centerX - badgeW / 2, badgeY, badgeW, 38, 19, '#FFD166', '#2B2D42', 3);
+    drawWrappedText(
+        `${quiz.badge} (${currentLevel + 1}/2)`,
+        centerX,
+        badgeY + 19,
+        badgeW - 16,
+        20,
+        '900 18px "Noto Sans TC", sans-serif',
+        '#2B2D42'
+    );
+
+    // 問題大卡片
+    const cardY = badgeY + 50;
+    const cardH = height * 0.31;
+    drawRoundRect(centerX - safeW / 2, cardY, safeW, cardH, 24, '#FFFFFF', '#2B2D42', 3.5);
+
+    // 卡片內繪製對應物品插圖 (手搖飲 或 外帶餐盒)
+    const iconY = cardY + cardH * 0.34;
+    const iconScale = Math.min(0.95, cardH / 230);
+    if (quiz.itemType === 'bubble_tea') {
+        drawBubbleTeaIcon(centerX, iconY, iconScale);
+    } else {
+        drawLunchBoxIcon(centerX, iconY, iconScale);
+    }
+
+    // 問題大標題 (例如：「手搖飲如何分類？」)
+    const qFontSize = Math.max(26, Math.min(36, safeW * 0.08));
+    drawWrappedText(
+        quiz.question,
+        centerX,
+        cardY + cardH * 0.72,
+        safeW - 24,
+        qFontSize * 1.2,
+        `900 ${qFontSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`,
+        '#FF6B6B'
+    );
+
+    // 提示小字
+    const hintSize = Math.max(15, Math.min(18, safeW * 0.042));
+    drawWrappedText(
+        quiz.subHint,
+        centerX,
+        cardY + cardH * 0.90,
+        safeW - 24,
+        hintSize * 1.2,
+        `700 ${hintSize}px "Noto Sans TC", sans-serif`,
+        '#5C677D'
+    );
+
+    // 繪製 4 個大按鈕 (支援左右搖晃偏移)
+    buttons.forEach(btn => {
+        drawBigButton(btn, btn.shakeOffset);
+    });
+
+    // 若答錯，繪製醒目的「再想想看！」浮動提示氣泡
+    if (toastMessage.active) {
+        const toastW = 220;
+        const toastH = 54;
+        const tx = Math.max(16, Math.min(width - toastW - 16, toastMessage.x - toastW / 2));
+        const ty = Math.max(20, toastMessage.y - toastH - 10);
+
+        drawRoundRect(tx, ty, toastW, toastH, 27, '#FF4D6D', '#FFFFFF', 4);
+        drawWrappedText(
+            "🤔 再想想看！",
+            tx + toastW / 2,
+            ty + toastH / 2,
+            toastW - 16,
+            26,
+            '900 24px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif',
+            '#FFFFFF'
+        );
+    }
+}
+
+// 繪製答對時「垃圾桶乾淨閃亮」小動畫畫面
+function drawCorrectAnimationScreen() {
+    const centerX = width / 2;
+    const centerY = height * 0.46;
+    const safeW = Math.min(width - 32, 520);
+
+    // 彈跳放大曲線
+    const p = animState.progress;
+    const bounce = 1 + Math.sin(Math.min(p * 2, 1) * Math.PI) * 0.25;
+    // 蓋子開心開合兩下
+    const lidAngle = Math.abs(Math.sin(p * Math.PI * 3)) * -0.35;
+
+    // 背後放射狀光芒圈
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(p * 1.5);
+    ctx.fillStyle = 'rgba(255, 209, 102, 0.38)';
+    for (let i = 0; i < 12; i++) {
+        ctx.rotate(Math.PI / 6);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-18, -190);
+        ctx.lineTo(18, -190);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // 繪製乾淨開心的垃圾桶
+    drawCleanTrashBin(centerX, centerY, 1.45 * bounce, true, lidAngle);
+
+    // 繪製閃亮星星特效
+    animState.sparkles.forEach(s => {
+        drawSparkleStar(s.x, s.y, s.size, s.color, s.alpha);
+    });
+
+    // 繪製彩帶碎紙
+    animState.confetti.forEach(c => {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate(c.rot);
+        ctx.fillStyle = c.color;
+        ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+        ctx.restore();
+    });
+
+    // 讚美大字
+    const titleSize = Math.max(32, Math.min(44, safeW * 0.095));
+    drawWrappedText(
+        "答對了！太棒啦！✨",
+        centerX,
+        height * 0.20,
+        safeW,
+        titleSize * 1.2,
+        `900 ${titleSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`,
+        '#2B9348'
+    );
+
+    const subSize = Math.max(22, Math.min(28, safeW * 0.065));
+    drawWrappedText(
+        "垃圾桶變得超乾淨、無異味！",
+        centerX,
+        height * 0.72,
+        safeW,
+        subSize * 1.25,
+        `900 ${subSize}px "Noto Sans TC", sans-serif`,
+        '#2B2D42'
+    );
+}
+
+// 繪製宣導重點卡片畫面
+function drawResultCardScreen() {
+    const quiz = QUIZ_DATA[currentLevel];
+    const centerX = width / 2;
+    const safeW = Math.min(width - 32, 540);
+
+    // 頂部小垃圾桶圖示 + 徽章
+    drawCleanTrashBin(centerX, height * 0.11, 0.58, true, -0.1);
+
+    // 宣導重點主卡片
+    const cardY = height * 0.19;
+    const cardH = height * 0.60;
+    drawRoundRect(centerX - safeW / 2, cardY, safeW, cardH, 26, '#FFFFFF', '#4ECDC4', 5);
+
+    // 卡片頂部強調色帶
+    drawRoundRect(centerX - safeW / 2, cardY, safeW, 54, 22, '#4ECDC4');
+    drawWrappedText(
+        "📢 衛生幹部宣導重點",
+        centerX,
+        cardY + 27,
+        safeW - 24,
+        24,
+        '900 22px "Noto Sans TC", sans-serif',
+        '#FFFFFF'
+    );
+
+    // 宣導主標語 (例如：「於圖書館丟手搖飲請確實分類！」)
+    const promoTitleSize = Math.max(24, Math.min(31, safeW * 0.068));
+    drawWrappedText(
+        quiz.promoTitle,
+        centerX,
+        cardY + 102,
+        safeW - 32,
+        promoTitleSize * 1.28,
+        `900 ${promoTitleSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`,
+        '#FF6B6B'
+    );
+
+    // 分隔虛線
+    ctx.save();
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(centerX - safeW * 0.42, cardY + 148);
+    ctx.lineTo(centerX + safeW * 0.42, cardY + 148);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#E2E8F0';
+    ctx.stroke();
+    ctx.restore();
+
+    // 條列式宣導重點 (大字清晰)
+    const pointSize = Math.max(18, Math.min(22, safeW * 0.048));
+    const startPointY = cardY + 185;
+    const stepY = (cardH - 205) / quiz.promoPoints.length;
+
+    quiz.promoPoints.forEach((pt, idx) => {
+        const isHighlight = idx === quiz.promoPoints.length - 1;
+        drawWrappedText(
+            pt,
+            centerX,
+            startPointY + idx * stepY,
+            safeW - 32,
+            pointSize * 1.25,
+            `900 ${pointSize}px "Noto Sans TC", sans-serif`,
+            isHighlight ? '#2B9348' : '#2B2D42'
+        );
+    });
+
+    // 下一題 / 完成按鈕
+    if (actionButton) {
+        drawBigButton(actionButton);
+    }
+}
+
+// 繪製最終總結畫面 (兩大宣導重點總回顧，方便截圖或分享到社群)
+function drawFinalSummaryScreen() {
+    const centerX = width / 2;
+    const safeW = Math.min(width - 32, 540);
+
+    const titleSize = Math.max(26, Math.min(36, safeW * 0.078));
+    drawWrappedText(
+        "🎉 恭喜成為圖書館環保小達人！",
+        centerX,
+        height * 0.08,
+        safeW,
+        titleSize * 1.2,
+        `900 ${titleSize}px "M PLUS Rounded 1c", "Noto Sans TC", sans-serif`,
+        '#2B2D42'
+    );
+
+    // 兩張重點總結小卡
+    const cardW = safeW;
+    const cardH = height * 0.30;
+
+    // 卡片 1：手搖飲
+    const c1Y = height * 0.15;
+    drawRoundRect(centerX - cardW / 2, c1Y, cardW, cardH, 22, '#FFFFFF', '#FF8A5B', 4);
+    drawBubbleTeaIcon(centerX - cardW * 0.34, c1Y + cardH * 0.5, 0.72);
+    const cardFont = Math.max(18, Math.min(23, safeW * 0.052));
+    drawWrappedText(
+        "宣導(一) 手搖飲分類\n封膜吸管撕除、\n剩下的飲料倒掉再回收！",
+        centerX + cardW * 0.12,
+        c1Y + cardH * 0.5,
+        cardW * 0.64,
+        cardFont * 1.32,
+        `900 ${cardFont}px "Noto Sans TC", sans-serif`,
+        '#2B2D42'
+    );
+
+    // 卡片 2：外帶餐盒
+    const c2Y = height * 0.45;
+    drawRoundRect(centerX - cardW / 2, c2Y, cardW, cardH, 22, '#FFFFFF', '#4ECDC4', 4);
+    drawLunchBoxIcon(centerX - cardW * 0.34, c2Y + cardH * 0.5, 0.72);
+    drawWrappedText(
+        "宣導(二) 外帶餐盒分類\n倒除廚餘、蓋子丟塑膠及紙餐盒，\n不造成打掃班級困擾！",
+        centerX + cardW * 0.12,
+        c2Y + cardH * 0.5,
+        cardW * 0.64,
+        cardFont * 1.32,
+        `900 ${cardFont}px "Noto Sans TC", sans-serif`,
+        '#2B2D42'
+    );
+
+    // 學業與好運祝福標語膠囊
+    const blessY = height * 0.765;
+    const blessH = height * 0.062;
+    drawRoundRect(centerX - safeW / 2, blessY, safeW, blessH, 16, '#FFF3B0', '#FFB703', 3);
+    const blessFont = Math.max(16, Math.min(20, safeW * 0.044));
+    drawWrappedText(
+        "🌟 隨手做環保、積人品，讀書專心考試拿高分！📚✨",
+        centerX,
+        blessY + blessH / 2,
+        safeW - 20,
+        blessFont * 1.2,
+        `900 ${blessFont}px "Noto Sans TC", sans-serif`,
+        '#D95D2B'
+    );
+
+    // 再玩一次按鈕
+    if (actionButton) {
+        drawBigButton(actionButton);
+    }
+}
+
+// 主繪圖迴圈
+let lastTime = 0;
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+
+    update(dt);
+    drawBackground();
+
+    if (currentState === STATE.START) {
+        drawStartScreen();
+    } else if (currentState === STATE.QUESTION) {
+        drawQuestionScreen();
+    } else if (currentState === STATE.ANIMATING_CORRECT) {
+        drawCorrectAnimationScreen();
+    } else if (currentState === STATE.RESULT_CARD) {
+        drawResultCardScreen();
+    } else if (currentState === STATE.FINAL_SUMMARY) {
+        drawFinalSummaryScreen();
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// 判斷點擊座標是否落在按鈕內
+function isPointInRect(px, py, rect) {
+    if (!rect) return false;
+    return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+}
+
+// 統一處理觸控與滑鼠點擊事件
+function handlePointerDown(clientX, clientY) {
+    initAudio(); // 首次互動解鎖音效
+
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    if (currentState === STATE.START) {
+        if (isPointInRect(x, y, actionButton)) {
+            playSound('click');
+            currentLevel = 0;
+            currentState = STATE.QUESTION;
+            buttons = [];
+            layoutUI();
+        }
+    } else if (currentState === STATE.QUESTION) {
+        for (let i = 0; i < buttons.length; i++) {
+            const btn = buttons[i];
+            if (isPointInRect(x, y, btn)) {
+                if (btn.isCorrect) {
+                    // 答對！播放音效與垃圾桶乾淨小動畫
+                    playSound('correct');
+                    toastMessage.active = false;
+                    triggerCorrectAnimation();
+                } else {
+                    // 答錯！按鈕左右搖一搖，顯示「再想想看！」
+                    playSound('wrong');
+                    btn.shakeTimer = 0.55;
+                    btn.isWrongMarked = true;
+                    toastMessage.active = true;
+                    toastMessage.timer = 1.4;
+                    toastMessage.x = btn.x + btn.w / 2;
+                    toastMessage.y = btn.y;
+                }
+                break;
+            }
+        }
+    } else if (currentState === STATE.RESULT_CARD) {
+        if (isPointInRect(x, y, actionButton)) {
+            playSound('click');
+            if (currentLevel === 0) {
+                // 進入第二題：外帶餐盒
+                currentLevel = 1;
+                currentState = STATE.QUESTION;
+                buttons = [];
+                layoutUI();
+            } else {
+                // 完成兩題，顯示總結畫面
+                playSound('sparkle');
+                currentState = STATE.FINAL_SUMMARY;
+                layoutUI();
+            }
+        }
+    } else if (currentState === STATE.FINAL_SUMMARY) {
+        if (isPointInRect(x, y, actionButton)) {
+            playSound('click');
+            currentLevel = 0;
+            currentState = STATE.QUESTION;
+            buttons = [];
+            layoutUI();
+        }
+    }
+}
+
+// 綁定滑鼠與手機觸控事件
+canvas.addEventListener('mousedown', (e) => {
+    handlePointerDown(e.clientX, e.clientY);
+});
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // 防止手機雙擊縮放或捲動
+    if (e.touches.length > 0) {
+        handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+    }
+}, { passive: false });
+
+window.addEventListener('resize', resizeCanvas);
+
+// 視窗載入完成後啟動遊戲
+window.onload = function () {
+    resizeCanvas();
+    requestAnimationFrame(gameLoop);
+};
+</script>
+
+</body>
+</html>
